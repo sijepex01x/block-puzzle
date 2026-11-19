@@ -525,7 +525,7 @@ function start(mods) {
   let gameOverShown = false;
   let pendingGameOver = false;
   let lockUntil = 0;
-  let confirmArmedAt = 0;
+  let confirmArmed = false; // NEW GAME two-tap confirm: stays armed until confirmed or cancelled (no timeout)
   let lastT = performance.now();
 
   function resize() {
@@ -599,7 +599,7 @@ function start(mods) {
     gameOverShown = false;
     pendingGameOver = false;
     lockUntil = 0;
-    confirmArmedAt = 0;
+    confirmArmed = false;
   }
 
   function dismissHowTo() {
@@ -609,6 +609,7 @@ function start(mods) {
 
   const handlers = {
     onPick(pieceIndex) {
+      confirmArmed = false; // any other action cancels a pending NEW GAME confirm
       if (showHowTo) { dismissHowTo(); return; }
       if (gameOverShown) return;
       if (!game.tray[pieceIndex]) return;
@@ -624,6 +625,7 @@ function start(mods) {
       drag.wouldClear = null;
     },
     onDrag(pieceIndex, x, y) {
+      confirmArmed = false; // any other action cancels a pending NEW GAME confirm
       if (showHowTo || gameOverShown) return;
       const piece = game.tray[pieceIndex];
       if (!piece) return;
@@ -638,6 +640,7 @@ function start(mods) {
       drag.wouldClear = drag.valid ? engine.wouldClear(game, piece, drag.cell.r, drag.cell.c) : { rows: [], cols: [] };
     },
     onDrop(pieceIndex, pointerCell) {
+      confirmArmed = false; // any other action cancels a pending NEW GAME confirm
       const wasDragging = drag.pieceIndex !== null;
       const piece = game.tray[pieceIndex];
       drag.pieceIndex = null;
@@ -656,6 +659,7 @@ function start(mods) {
       tryPlace(pieceIndex, anchor.r, anchor.c);
     },
     onTapCell(r, c) {
+      confirmArmed = false; // any other action cancels a pending NEW GAME confirm
       if (showHowTo) { dismissHowTo(); return; }
       if (gameOverShown) return;
       if (selected === null || selected === undefined) return;
@@ -664,6 +668,7 @@ function start(mods) {
       }
     },
     onButton(id) {
+      if (id !== 'newGame') confirmArmed = false; // any other button cancels a pending NEW GAME confirm
       if (id === 'howto') {
         showHowTo = !showHowTo;
         if (!showHowTo) lsSet(SEEN_KEY, '1');
@@ -682,11 +687,12 @@ function start(mods) {
         if (showHowTo) { dismissHowTo(); return; }
         if (gameOverShown) { doNewGame(); return; }
         const inProgress = game.score > 0 || game.moves > 0;
-        const now = performance.now();
         if (inProgress) {
-          // Two-tap confirm: first tap arms "SURE?", second within 3s confirms.
-          if (confirmArmedAt === 0 || now - confirmArmedAt > 3000) {
-            confirmArmedAt = now;
+          // Persistent two-tap confirm: first tap arms "SURE?" and it stays
+          // armed until the second tap confirms or anything else cancels it.
+          // No time-based revert.
+          if (!confirmArmed) {
+            confirmArmed = true;
             return;
           }
         }
@@ -694,6 +700,7 @@ function start(mods) {
       }
     },
     onCancel() {
+      confirmArmed = false; // Esc / tap on empty space cancels a pending NEW GAME confirm
       if (showHowTo) { dismissHowTo(); return; }
       selected = null;
       drag.pieceIndex = null;
@@ -734,12 +741,11 @@ function start(mods) {
       saveBest();
       audio.gameOver();
     }
-    // Keep the armed confirm visible for 3s.
+    // The armed confirm stays visible until confirmed or cancelled (no timeout).
     const ui = {
-      confirmNewGame: confirmArmedAt !== 0 && now - confirmArmedAt <= 3000,
+      confirmNewGame: confirmArmed,
       muted: !!audio.muted,
     };
-    if (confirmArmedAt !== 0 && now - confirmArmedAt > 3000) confirmArmedAt = 0;
     paintBackground();
     renderer.draw(ctx, game, layout, drag);
     drawHUD(ctx, game, layout, ui);
